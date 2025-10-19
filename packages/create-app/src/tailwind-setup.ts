@@ -2,19 +2,14 @@ import fs from 'fs-extra';
 import path from 'path';
 
 export async function setupTailwind(targetPath: string): Promise<void> {
-  // Update package.json with Tailwind dependencies
   await updatePackageJsonForTailwind(targetPath);
 
-  // Create postcss.config.js
   await createPostCSSConfig(targetPath);
 
-  // Create tailwind.config.ts
   await createTailwindConfig(targetPath);
 
-  // Update App.css with Tailwind directives
   await updateAppCSSForTailwind(targetPath);
 
-  // Update App.tsx with Tailwind classes
   await updateAppTSXForTailwind(targetPath);
 }
 
@@ -22,7 +17,6 @@ async function updatePackageJsonForTailwind(targetPath: string): Promise<void> {
   const packageJsonPath = path.join(targetPath, 'package.json');
   const packageJson = await fs.readJson(packageJsonPath);
 
-  // Add Tailwind CSS dependencies
   packageJson.devDependencies = {
     ...packageJson.devDependencies,
     tailwindcss: '^3',
