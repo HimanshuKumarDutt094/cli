@@ -2,12 +2,13 @@
 
 import * as p from '@clack/prompts';
 import { Command } from 'commander';
+import { execSync } from 'child_process';
 import fs from 'fs-extra';
 import gradient from 'gradient-string';
 import path from 'path';
 import pc from 'picocolors';
+import os from 'os';
 import { fileURLToPath } from 'url';
-import { setupTailwind } from './tailwind-setup.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -32,6 +33,12 @@ interface AppConfig {
   platforms: string[];
   directory: string;
   useTailwind: boolean;
+}
+
+interface CLIOptions {
+  platforms?: string[];
+  directory?: string;
+  useTailwind?: boolean;
 }
 
 function toPascalCase(str: string): string {
@@ -223,43 +230,39 @@ export async function createApp(): Promise<void> {
     .version('0.1.0')
     .argument('[project-name]', 'Name of the project')
     .option('-p, --platforms <platforms...>', 'Platforms to include')
+    .option('-t, --tailwind', 'Use Tailwind CSS')
     .option('-d, --directory <directory>', 'Target directory')
-    .action(
-      async (
-        projectName?: string,
-        options?: { platforms?: string[]; directory?: string },
-      ) => {
-        try {
-          const config = await gatherProjectInfo(projectName, options);
-          await scaffoldProject(config);
+    .action(async (projectName?: string, options?: CLIOptions) => {
+      try {
+        const config = await gatherProjectInfo(projectName, options);
+        await scaffoldProject(config);
 
-          const packageManager = detectPackageManager();
-          const installCmd =
-            packageManager === 'yarn' ? 'yarn' : `${packageManager} install`;
-          const devCmd = `${packageManager} dev`;
+        const packageManager = detectPackageManager();
+        const installCmd =
+          packageManager === 'yarn' ? 'yarn' : `${packageManager} install`;
+        const devCmd = `${packageManager} dev`;
 
-          p.outro(pc.cyan('Happy hacking!'));
-          console.log(pc.white(`Next steps:`));
-          console.log(pc.gray(`  cd ${config.name}`));
-          console.log(pc.gray(`  ${installCmd}`));
-          console.log(pc.gray(`  ${devCmd}`));
-        } catch (error) {
-          if (error instanceof Error && error.message === 'cancelled') {
-            p.cancel('Operation cancelled.');
-            process.exit(0);
-          }
-          p.cancel(pc.red('❌ Error creating project: ' + error));
-          process.exit(1);
+        p.outro(pc.cyan('Happy hacking!'));
+        console.log(pc.white(`Next steps:`));
+        console.log(pc.gray(`  cd ${config.name}`));
+        console.log(pc.gray(`  ${installCmd}`));
+        console.log(pc.gray(`  ${devCmd}`));
+      } catch (error) {
+        if (error instanceof Error && error.message === 'cancelled') {
+          p.cancel('Operation cancelled.');
+          process.exit(0);
         }
-      },
-    );
+        p.cancel(pc.red('❌ Error creating project: ' + error));
+        process.exit(1);
+      }
+    });
 
   await program.parseAsync();
 }
 
 async function gatherProjectInfo(
   projectName?: string,
-  options?: { platforms?: string[]; directory?: string },
+  options?: CLIOptions,
 ): Promise<AppConfig> {
   let name = projectName;
   let platforms = options?.platforms;
@@ -302,77 +305,121 @@ async function gatherProjectInfo(
     platforms = platformsResult as string[];
   }
 
-  const tailwindResult = await p.confirm({
-    message: 'Do you want to use Tailwind CSS?',
-    initialValue: false,
-  });
+  let useTailwind = false;
+  if (options?.useTailwind === true) {
+    useTailwind = true;
+  } else if (options?.useTailwind === false) {
+    useTailwind = false;
+  } else {
+    const tailwindResult = await p.confirm({
+      message: 'Do you want to use Tailwind CSS?',
+      initialValue: false,
+    });
 
-  if (p.isCancel(tailwindResult)) {
-    throw new Error('cancelled');
+    if (p.isCancel(tailwindResult)) {
+      throw new Error('cancelled');
+    }
+
+    useTailwind = tailwindResult;
   }
 
   return {
     name: name as string,
     platforms: platforms as string[],
     directory: options?.directory || process.cwd(),
-    useTailwind: tailwindResult,
+    useTailwind,
   };
 }
 
 async function scaffoldProject(config: AppConfig): Promise<void> {
   const targetPath = path.join(config.directory, config.name);
+  const repoUrl = 'https://github.com/lynx-community/cli';
 
   const spinner = p.spinner();
   spinner.start(`Creating project in ${targetPath}`);
 
-  if (await fs.pathExists(targetPath)) {
-    spinner.stop();
-    throw new Error(`Directory ${targetPath} already exists`);
+  // Create target directory
+  await fs.ensureDir(targetPath);
+
+  // Copy platform-specific folders from local helloworld package
+  spinner.message('Adding platform-specific folders...');
+  if (config.platforms.includes('android')) {
+    const androidPath = path.join(__dirname, '../helloworld/android');
+    if (await fs.pathExists(androidPath)) {
+      await fs.copy(androidPath, path.join(targetPath, 'android'), {
+        overwrite: true,
+      });
+    }
+  }
+  if (config.platforms.includes('ios')) {
+    const iosPath = path.join(__dirname, '../helloworld/apple');
+    if (await fs.pathExists(iosPath)) {
+      await fs.copy(iosPath, path.join(targetPath, 'apple'), {
+        overwrite: true,
+      });
+    }
   }
 
-  // Use bundled template from templates directory
-  const templatePath = path.join(__dirname, '../templates/helloworld');
+  // Fetch core React template
+  spinner.message('Fetching React template...');
+  await fetchGitHubFolder(repoUrl, 'packages/templates/react', targetPath);
 
-  if (!(await fs.pathExists(templatePath))) {
-    spinner.stop();
-    throw new Error(
-      `Template not found at ${templatePath}. Please ensure the helloworld template exists.`,
+  // Fetch and merge Tailwind template if selected
+  if (config.useTailwind) {
+    spinner.message('Adding Tailwind CSS...');
+    await fetchAndMergeTemplate(
+      repoUrl,
+      'packages/templates/react-tailwind',
+      targetPath,
     );
   }
 
-  spinner.message('Copying template files...');
-  await fs.copy(templatePath, targetPath);
-
+  // Configure project files
   spinner.message('Configuring project files...');
-
   await replaceTemplateStrings(targetPath, config.name);
   await renameTemplateFilesAndDirs(targetPath, config.name);
-
-  await cleanupUnselectedPlatforms(targetPath, config.platforms);
-
-  if (config.useTailwind) {
-    spinner.message('Setting up Tailwind CSS...');
-    await setupTailwind(targetPath);
-  }
 
   spinner.stop('Project created successfully!');
 }
 
-async function cleanupUnselectedPlatforms(
+async function fetchGitHubFolder(
+  repoUrl: string,
+  folderPath: string,
   targetPath: string,
-  selectedPlatforms: string[],
 ): Promise<void> {
-  if (!selectedPlatforms.includes('ios')) {
-    const applePath = path.join(targetPath, 'apple');
-    if (await fs.pathExists(applePath)) {
-      await fs.remove(applePath);
-    }
-  }
+  const tempDir = path.join(os.tmpdir(), `lynx-template-${Date.now()}`);
+  await fs.ensureDir(tempDir);
 
-  if (!selectedPlatforms.includes('android')) {
-    const androidPath = path.join(targetPath, 'android');
-    if (await fs.pathExists(androidPath)) {
-      await fs.remove(androidPath);
-    }
+  try {
+    // Initialize git repo
+    execSync(`git init "${tempDir}"`, { stdio: 'ignore' });
+
+    // Add remote
+    execSync(`git -C "${tempDir}" remote add origin "${repoUrl}"`, {
+      stdio: 'ignore',
+    });
+
+    // Configure sparse checkout
+    execSync(`git -C "${tempDir}" sparse-checkout set "${folderPath}"`, {
+      stdio: 'ignore',
+    });
+
+    // Pull the folder
+    execSync(`git -C "${tempDir}" pull origin main`, { stdio: 'ignore' });
+
+    // Copy the folder contents to target
+    const sourcePath = path.join(tempDir, folderPath);
+    await fs.copy(sourcePath, targetPath, { overwrite: true });
+  } finally {
+    // Clean up temp directory
+    await fs.remove(tempDir);
   }
+}
+
+async function fetchAndMergeTemplate(
+  repoUrl: string,
+  folderPath: string,
+  targetPath: string,
+): Promise<void> {
+  await fetchGitHubFolder(repoUrl, folderPath, targetPath);
 }
