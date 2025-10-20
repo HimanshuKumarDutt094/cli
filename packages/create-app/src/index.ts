@@ -2,16 +2,17 @@
 
 import * as p from '@clack/prompts';
 import { Command } from 'commander';
-import { execSync } from 'child_process';
+import { execSync } from 'node:child_process';
 import fs from 'fs-extra';
 import gradient from 'gradient-string';
-import path from 'path';
+import path from 'node:path';
 import pc from 'picocolors';
-import os from 'os';
 import { fileURLToPath } from 'url';
+import { fetchAndMergeTemplate, fetchGitHubFolder } from './utils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const repoUrl = 'https://github.com/HimanshuKumarDutt094/cli.git';
 
 function detectPackageManager(): string {
   const userAgent = process.env.npm_config_user_agent || '';
@@ -33,12 +34,14 @@ interface AppConfig {
   platforms: string[];
   directory: string;
   useTailwind: boolean;
+  useGit: boolean;
 }
 
 interface CLIOptions {
   platforms?: string[];
   directory?: string;
   useTailwind?: boolean;
+  useGit?: boolean;
 }
 
 function toPascalCase(str: string): string {
@@ -231,6 +234,7 @@ export async function createApp(): Promise<void> {
     .argument('[project-name]', 'Name of the project')
     .option('-p, --platforms <platforms...>', 'Platforms to include')
     .option('-t, --tailwind', 'Use Tailwind CSS')
+    .option('-g, --git', 'Initialize Git repository')
     .option('-d, --directory <directory>', 'Target directory')
     .action(async (projectName?: string, options?: CLIOptions) => {
       try {
@@ -305,12 +309,8 @@ async function gatherProjectInfo(
     platforms = platformsResult as string[];
   }
 
-  let useTailwind = false;
-  if (options?.useTailwind === true) {
-    useTailwind = true;
-  } else if (options?.useTailwind === false) {
-    useTailwind = false;
-  } else {
+  let useTailwind = options?.useTailwind;
+  if (useTailwind === undefined) {
     const tailwindResult = await p.confirm({
       message: 'Do you want to use Tailwind CSS?',
       initialValue: false,
@@ -323,28 +323,40 @@ async function gatherProjectInfo(
     useTailwind = tailwindResult;
   }
 
+  let useGit = options?.useGit;
+  if (useGit === undefined) {
+    const gitResult = await p.confirm({
+      message: 'Do you want to initialize a Git repository?',
+      initialValue: false,
+    });
+
+    if (p.isCancel(gitResult)) {
+      throw new Error('cancelled');
+    }
+
+    useGit = gitResult;
+  }
+
   return {
     name: name as string,
     platforms: platforms as string[],
     directory: options?.directory || process.cwd(),
     useTailwind,
+    useGit,
   };
 }
 
 async function scaffoldProject(config: AppConfig): Promise<void> {
   const targetPath = path.join(config.directory, config.name);
-  const repoUrl = 'https://github.com/lynx-community/cli';
 
   const spinner = p.spinner();
   spinner.start(`Creating project in ${targetPath}`);
 
-  // Create target directory
   await fs.ensureDir(targetPath);
 
-  // Copy platform-specific folders from local helloworld package
   spinner.message('Adding platform-specific folders...');
   if (config.platforms.includes('android')) {
-    const androidPath = path.join(__dirname, '../helloworld/android');
+    const androidPath = path.join(__dirname, '../templates/helloworld/android');
     if (await fs.pathExists(androidPath)) {
       await fs.copy(androidPath, path.join(targetPath, 'android'), {
         overwrite: true,
@@ -352,7 +364,7 @@ async function scaffoldProject(config: AppConfig): Promise<void> {
     }
   }
   if (config.platforms.includes('ios')) {
-    const iosPath = path.join(__dirname, '../helloworld/apple');
+    const iosPath = path.join(__dirname, '../templates/helloworld/apple');
     if (await fs.pathExists(iosPath)) {
       await fs.copy(iosPath, path.join(targetPath, 'apple'), {
         overwrite: true,
@@ -360,11 +372,9 @@ async function scaffoldProject(config: AppConfig): Promise<void> {
     }
   }
 
-  // Fetch core React template
   spinner.message('Fetching React template...');
   await fetchGitHubFolder(repoUrl, 'packages/templates/react', targetPath);
 
-  // Fetch and merge Tailwind template if selected
   if (config.useTailwind) {
     spinner.message('Adding Tailwind CSS...');
     await fetchAndMergeTemplate(
@@ -374,52 +384,14 @@ async function scaffoldProject(config: AppConfig): Promise<void> {
     );
   }
 
-  // Configure project files
   spinner.message('Configuring project files...');
   await replaceTemplateStrings(targetPath, config.name);
   await renameTemplateFilesAndDirs(targetPath, config.name);
 
-  spinner.stop('Project created successfully!');
-}
-
-async function fetchGitHubFolder(
-  repoUrl: string,
-  folderPath: string,
-  targetPath: string,
-): Promise<void> {
-  const tempDir = path.join(os.tmpdir(), `lynx-template-${Date.now()}`);
-  await fs.ensureDir(tempDir);
-
-  try {
-    // Initialize git repo
-    execSync(`git init "${tempDir}"`, { stdio: 'ignore' });
-
-    // Add remote
-    execSync(`git -C "${tempDir}" remote add origin "${repoUrl}"`, {
-      stdio: 'ignore',
-    });
-
-    // Configure sparse checkout
-    execSync(`git -C "${tempDir}" sparse-checkout set "${folderPath}"`, {
-      stdio: 'ignore',
-    });
-
-    // Pull the folder
-    execSync(`git -C "${tempDir}" pull origin main`, { stdio: 'ignore' });
-
-    // Copy the folder contents to target
-    const sourcePath = path.join(tempDir, folderPath);
-    await fs.copy(sourcePath, targetPath, { overwrite: true });
-  } finally {
-    // Clean up temp directory
-    await fs.remove(tempDir);
+  if (config.useGit) {
+    spinner.message('Initializing Git repository...');
+    execSync('git init', { cwd: targetPath, stdio: 'ignore' });
   }
-}
 
-async function fetchAndMergeTemplate(
-  repoUrl: string,
-  folderPath: string,
-  targetPath: string,
-): Promise<void> {
-  await fetchGitHubFolder(repoUrl, folderPath, targetPath);
+  spinner.stop('Project created successfully!');
 }
