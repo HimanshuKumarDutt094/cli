@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 
+import { execSync } from 'node:child_process';
+import path from 'node:path';
 import * as p from '@clack/prompts';
 import { Command } from 'commander';
-import { execSync } from 'node:child_process';
 import fs from 'fs-extra';
 import gradient from 'gradient-string';
-import path from 'node:path';
 import pc from 'picocolors';
 import { fetchGitHubFolders } from './utils.js';
 

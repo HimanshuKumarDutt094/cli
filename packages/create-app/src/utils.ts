@@ -1,8 +1,8 @@
 import { exec } from 'node:child_process';
+import os from 'node:os';
+import path from 'node:path';
 import { promisify } from 'node:util';
 import fs from 'fs-extra';
-import path from 'node:path';
-import os from 'node:os';
 
 //note we are promisifying exec to use async/await so the spinner show
 //otherwise the cli would just pause and show project created successfully
@@ -73,6 +73,8 @@ export async function fetchGitHubFolders(
   } finally {
     try {
       await fs.remove(tempDir);
-    } catch {}
+    } catch {
+      // Ignore cleanup errors
+    }
   }
 }
