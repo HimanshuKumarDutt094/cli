@@ -7,12 +7,9 @@ import fs from 'fs-extra';
 import gradient from 'gradient-string';
 import path from 'node:path';
 import pc from 'picocolors';
-import { fileURLToPath } from 'url';
-import { fetchAndMergeTemplate, fetchGitHubFolder } from './utils.js';
+import { fetchGitHubFolders } from './utils.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const repoUrl = 'https://github.com/lynx-community/cli.git';
+const repoUrl = 'https://github.com/HimanshuKumarDutt094/cli.git';
 
 function detectPackageManager(): string {
   const userAgent = process.env.npm_config_user_agent || '';
@@ -348,41 +345,40 @@ async function gatherProjectInfo(
 
 async function scaffoldProject(config: AppConfig): Promise<void> {
   const targetPath = path.join(config.directory, config.name);
-
+  p.spinner({ indicator: 'dots' }).message('hello');
   const spinner = p.spinner();
   spinner.start(`Creating project in ${targetPath}`);
 
   await fs.ensureDir(targetPath);
+  spinner.message('Adding platform-specific folders and templates...');
+  const fetchEntries: Array<{ repoPath: string; destPath?: string }> = [];
 
-  spinner.message('Adding platform-specific folders...');
   if (config.platforms.includes('android')) {
-    const androidPath = path.join(__dirname, '../templates/helloworld/android');
-    if (await fs.pathExists(androidPath)) {
-      await fs.copy(androidPath, path.join(targetPath, 'android'), {
-        overwrite: true,
-      });
-    }
+    fetchEntries.push({
+      repoPath: 'packages/templates/android',
+      destPath: 'android',
+    });
   }
+
   if (config.platforms.includes('ios')) {
-    const iosPath = path.join(__dirname, '../templates/helloworld/apple');
-    if (await fs.pathExists(iosPath)) {
-      await fs.copy(iosPath, path.join(targetPath, 'apple'), {
-        overwrite: true,
-      });
-    }
+    fetchEntries.push({
+      repoPath: 'packages/templates/apple',
+      destPath: 'apple',
+    });
   }
 
-  spinner.message('Fetching React template...');
-  await fetchGitHubFolder(repoUrl, 'packages/templates/react', targetPath);
+  fetchEntries.push({ repoPath: 'packages/templates/react', destPath: '' });
 
+  // Tailwind overlays react (so add it after react)
   if (config.useTailwind) {
-    spinner.message('Adding Tailwind CSS...');
-    await fetchAndMergeTemplate(
-      repoUrl,
-      'packages/templates/react-tailwind',
-      targetPath,
-    );
+    fetchEntries.push({
+      repoPath: 'packages/templates/react-tailwind',
+      destPath: '',
+    });
   }
+
+  spinner.message('Fetching templates...');
+  await fetchGitHubFolders(repoUrl, fetchEntries, targetPath);
 
   spinner.message('Configuring project files...');
   await replaceTemplateStrings(targetPath, config.name);
