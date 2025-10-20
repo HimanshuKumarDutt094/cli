@@ -22,10 +22,6 @@ export async function fetchGitHubFolder(
       stdio: 'ignore',
     });
 
-    execSync(`git -C "${tempDir}" pull origin feat/tailwind`, {
-      stdio: 'ignore',
-    });
-
     const sourcePath = path.join(tempDir, folderPath);
     await fs.copy(sourcePath, targetPath, { overwrite: true });
   } finally {
