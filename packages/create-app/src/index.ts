@@ -9,7 +9,7 @@ import path from 'node:path';
 import pc from 'picocolors';
 import { fetchGitHubFolders } from './utils.js';
 
-const repoUrl = 'https://github.com/HimanshuKumarDutt094/cli.git';
+const repoUrl = 'https://github.com/lynx-community/cli.git';
 
 function detectPackageManager(): string {
   const userAgent = process.env.npm_config_user_agent || '';
