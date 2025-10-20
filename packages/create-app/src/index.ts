@@ -12,7 +12,7 @@ import { fetchAndMergeTemplate, fetchGitHubFolder } from './utils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const repoUrl = 'https://github.com/HimanshuKumarDutt094/cli.git';
+const repoUrl = 'https://github.com/lynx-community/cli.git';
 
 function detectPackageManager(): string {
   const userAgent = process.env.npm_config_user_agent || '';
